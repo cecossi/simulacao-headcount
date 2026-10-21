@@ -181,6 +181,9 @@ const S = {
 };
 
 /* ─── SIMULAÇÃO ─────────────────────────────────────────────── */
+// Lógica correta: projetos que entram num mês não são concluídos
+// no mesmo mês. Done só trabalha o estoque de abertura; entradas
+// vão para o estoque final e são processadas a partir do próximo mês.
 function simulate(name) {
   const p = S.products[name];
   const rows = [];
@@ -192,12 +195,18 @@ function simulate(name) {
     const dur     = is27 ? p.duracaoMeta  : p.duracaoAtual;
     const entries = p.entries[m.key] || 0;
     const cap     = p.headcount * thr;
-    const stockIn = stock + entries;
-    const done    = Math.min(stockIn, cap);
-    const stockOut= stockIn - done;
-    const avgDays = cap > 0 ? Math.round((stockIn / cap) * dur) : 9999;
-    const hcMin   = cap > 0 ? Math.ceil(stockIn / thr) : '—';
-    rows.push({ m, entries, stockIn, cap, done, stockOut, avgDays, hcMin, dur });
+
+    // Concluídos: apenas projetos já em andamento (estoque de abertura)
+    const done    = Math.min(stock, cap);
+    // Estoque final: o que sobrou + as entradas do mês
+    const stockOut= stock - done + entries;
+
+    // Tempo médio: com stockOut projetos aguardando e cap/mês de capacidade,
+    // quanto tempo um projeto demora para ser processado (Little's Law × dur)
+    const avgDays = cap > 0 ? Math.round((stockOut / cap) * dur) : 9999;
+    const hcMin   = cap > 0 ? Math.ceil(stockOut / thr) : '—';
+
+    rows.push({ m, entries, stockIn: stock, cap, done, stockOut, avgDays, hcMin, dur });
     stock = stockOut;
   }
   return rows;
@@ -262,9 +271,9 @@ function renderProduct(name) {
     return `${sep}
       <tr${rowClass}>
         <td>${r.m.label}${partialTip}</td>
+        <td>${r.stockIn}</td>
         <td><input class="entry-inp" type="number" min="0" value="${r.entries}"
               oninput="setEntry('${name}','${r.m.key}',this.value)"></td>
-        <td>${r.stockIn}</td>
         <td>${r.cap}</td>
         <td>${r.done}</td>
         <td>${r.stockOut}</td>
@@ -337,8 +346,8 @@ function renderProduct(name) {
           <thead>
             <tr>
               <th style="text-align:left">Mês</th>
+              <th>Est. abertura</th>
               <th>Entradas</th>
-              <th>Est. início</th>
               <th>Capacidade</th>
               <th>Concluídos</th>
               <th>Est. final</th>
