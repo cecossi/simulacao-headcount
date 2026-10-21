@@ -243,6 +243,31 @@ function hcCell(needed, current) {
   return `<span class="hc-crit">${needed}</span>`;
 }
 
+/* ─── HEADCOUNT ESTÁVEL ─────────────────────────────────────── */
+// Encontra o menor HC que mantém o sistema estável em 2027:
+// hcMin nunca supera o HC testado em nenhum mês do ano.
+// Isso evita o efeito de "acúmulo fictício" que ocorre quando
+// a simulação roda com HC insuficiente e o estoque cresce indefinidamente.
+function findStableHC(name) {
+  const p = S.products[name];
+  for (let tryHC = 1; tryHC <= 60; tryHC++) {
+    let stock = p.backlog;
+    let stable = true;
+    for (const m of MONTHS) {
+      const entries  = p.entries[m.key] || 0;
+      const cap      = tryHC * p.throughput;
+      const done     = Math.min(stock, cap);
+      const stockOut = stock - done + entries;
+      if (m.year === '2027' && Math.ceil(stockOut / p.throughput) > tryHC) {
+        stable = false; break;
+      }
+      stock = stockOut;
+    }
+    if (stable) return tryHC;
+  }
+  return 60;
+}
+
 /* ─── CONFIG CHART ──────────────────────────────────────────── */
 const DATALABELS_BAR = {
   display: ctx => ctx.datasetIndex === 0 && ctx.dataset.data[ctx.dataIndex] > 0,
@@ -277,7 +302,8 @@ const _charts = {};
 function renderCurve() {
   const names = Object.keys(S.products);
   const section = document.getElementById('curve-section');
-  const totalHC = Object.values(S.products).reduce((s,p) => s + p.headcount, 0);
+  const totalHC    = Object.values(S.products).reduce((s,p) => s + p.headcount, 0);
+  const totalStable = Object.keys(S.products).reduce((s,n) => s + findStableHC(n), 0);
   section.innerHTML = `
     <div class="curve-section">
       <div class="curve-head">
@@ -285,7 +311,7 @@ function renderCurve() {
         <p>Quantas pessoas são necessárias em cada mês para manter a fila sob controle. A linha tracejada é o headcount atual.</p>
       </div>
       <div class="curve-total">
-        <div class="curve-total-title">Total — todos os produtos (HC atual: ${totalHC} pessoas)</div>
+        <div class="curve-total-title">Total — todos os produtos · atual: ${totalHC} pessoas · necessário: ${totalStable} pessoas · <span class="${totalStable > totalHC ? 'crit' : 'ok'}">▲ ${totalStable - totalHC} a contratar</span></div>
         <canvas id="cv-total" style="max-height:180px"></canvas>
       </div>
       <div class="curve-divider">Por produto</div>
@@ -301,11 +327,20 @@ function renderCurve() {
     </div>`;
 
   // Gráfico total
-  const allRows = names.map(n => simulate(n));
-  const totalLabels = allRows[0].map(r => r.m.label);
+  // Simula cada produto com o HC estável (não o atual) para o gráfico total
+  // mostrar a demanda real mês a mês, sem o acúmulo fictício de estoque.
+  const allStableRows = names.map(n => {
+    const p = S.products[n];
+    const saved = p.headcount;
+    p.headcount = findStableHC(n);
+    const rows = simulate(n);
+    p.headcount = saved;
+    return rows;
+  });
+  const totalLabels = allStableRows[0].map(r => r.m.label);
   const totalData = totalLabels.map((_, i) =>
     names.reduce((s, n, ni) => {
-      const hc = allRows[ni][i].hcMin;
+      const hc = allStableRows[ni][i].hcMin;
       return s + (typeof hc === 'number' ? hc : 0);
     }, 0)
   );
@@ -389,9 +424,9 @@ function renderSummary() {
     const p = S.products[name];
     const rows = simulate(name);
     const r27 = rows.filter(r => r.m.year === '2027');
-    const maxNeeded = Math.max(...r27.map(r => r.hcMin === '—' ? 0 : r.hcMin));
     const avgDays27 = Math.round(r27.reduce((s,r) => s + Math.min(r.avgDays, 999), 0) / r27.length);
-    const delta = maxNeeded - p.headcount;
+    const stableHC = findStableHC(name);
+    const delta = stableHC - p.headcount;
     const cls = delta > 0 ? 'crit' : 'ok';
     const deltaLabel = delta > 0 ? `▲ ${delta} a contratar` : `✓ suficiente`;
     return `
@@ -400,8 +435,8 @@ function renderSummary() {
         <div class="nums">
           <span class="big">${p.headcount}</span>
           <span class="arrow">→</span>
-          <span class="needed ${cls}">${maxNeeded}</span>
-          <span style="font-size:11px;color:var(--text-muted)">pico 2027</span>
+          <span class="needed ${cls}">${stableHC}</span>
+          <span style="font-size:11px;color:var(--text-muted)">necessário</span>
         </div>
         <div class="delta ${cls}">${deltaLabel}</div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Tempo médio 2027: <strong style="color:var(--text)">${avgDays27}d</strong></div>
@@ -415,8 +450,8 @@ function renderProduct(name) {
   const rows = simulate(name);
   const r27 = rows.filter(r => r.m.year === '2027');
   const avgDays27 = Math.round(r27.reduce((s,r) => s + Math.min(r.avgDays, 999), 0) / r27.length);
-  const maxNeeded = Math.max(...r27.map(r => r.hcMin === '—' ? 0 : r.hcMin));
-  const delta = maxNeeded - p.headcount;
+  const stableHC  = findStableHC(name);
+  const delta = stableHC - p.headcount;
   const cap = p.headcount * p.throughput;
 
   let prevYear = '';
@@ -506,7 +541,7 @@ function renderProduct(name) {
 
       <div class="card-foot">
         <div class="foot-item">Tempo médio em 2027: <strong>${avgDays27}d</strong></div>
-        <div class="foot-item">HC máximo necessário 2027: <strong>${maxNeeded}</strong> vs <strong>${p.headcount} atuais</strong> — ${deltaLabel}</div>
+        <div class="foot-item">HC estável necessário: <strong>${stableHC}</strong> vs <strong>${p.headcount} atuais</strong> — ${deltaLabel}</div>
       </div>
       <div class="legend">
         <span><span class="badge g" style="font-size:10px">verde</span> dentro da meta (≤ ${p.duracaoMeta}d em 2027)</span>
