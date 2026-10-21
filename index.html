@@ -101,6 +101,9 @@
     .curve-legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); padding: 8px 16px; border-top: 1px solid var(--border); flex-wrap: wrap; }
     .curve-legend span { display: flex; align-items: center; gap: 5px; }
     .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .curve-total { padding: 16px; border-bottom: 1px solid var(--border); }
+    .curve-total-title { font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+    .curve-divider { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #64748b; background: #e2e8f0; padding: 4px 16px; }
   </style>
 </head>
 <body>
@@ -242,12 +245,18 @@ const _charts = {};
 function renderCurve() {
   const names = Object.keys(S.products);
   const section = document.getElementById('curve-section');
+  const totalHC = Object.values(S.products).reduce((s,p) => s + p.headcount, 0);
   section.innerHTML = `
     <div class="curve-section">
       <div class="curve-head">
         <h2>Curva de HC necessário — mês a mês</h2>
         <p>Quantas pessoas são necessárias em cada mês para manter a fila sob controle. A linha tracejada é o headcount atual.</p>
       </div>
+      <div class="curve-total">
+        <div class="curve-total-title">Total — todos os produtos (HC atual: ${totalHC} pessoas)</div>
+        <canvas id="cv-total" style="max-height:180px"></canvas>
+      </div>
+      <div class="curve-divider">Por produto</div>
       <div class="curve-grid">
         ${names.map(n => `<div class="curve-chart"><div class="curve-chart-title" style="color:${S.products[n].color}">${n}</div><canvas id="cv-${n.replace(/\W/g,'_')}"></canvas></div>`).join('')}
       </div>
@@ -258,6 +267,59 @@ function renderCurve() {
         <span style="margin-left:4px">— — headcount atual</span>
       </div>
     </div>`;
+
+  // Gráfico total
+  const allRows = names.map(n => simulate(n));
+  const totalLabels = allRows[0].map(r => r.m.label);
+  const totalData = totalLabels.map((_, i) =>
+    names.reduce((s, n, ni) => {
+      const hc = allRows[ni][i].hcMin;
+      return s + (typeof hc === 'number' ? hc : 0);
+    }, 0)
+  );
+  const totalCurrentHC = Object.values(S.products).reduce((s,p) => s + p.headcount, 0);
+  const totalColors = totalData.map(v =>
+    v <= totalCurrentHC ? '#16a34a' : v === totalCurrentHC + 1 ? '#d97706' : '#dc2626'
+  );
+  if (_charts['cv-total']) _charts['cv-total'].destroy();
+  _charts['cv-total'] = new Chart(document.getElementById('cv-total').getContext('2d'), {
+    data: {
+      labels: totalLabels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'HC total necessário',
+          data: totalData,
+          backgroundColor: totalColors,
+          borderRadius: 3,
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: 'HC total atual',
+          data: Array(totalLabels.length).fill(totalCurrentHC),
+          borderColor: '#0f172a',
+          borderWidth: 2,
+          borderDash: [6, 3],
+          pointRadius: 0,
+          fill: false,
+          order: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { stepSize: 1, precision: 0 },
+          title: { display: true, text: 'pessoas', font: { size: 11 } }
+        },
+        x: { ticks: { font: { size: 11 } } }
+      }
+    }
+  });
 
   names.forEach(name => {
     const p = S.products[name];
