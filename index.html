@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Simulador de Headcount — Preâmbulo Tech</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
     :root {
       --bg: #f1f5f9;
@@ -87,6 +88,19 @@
 
     .legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); padding: 6px 16px; background: #f8fafc; border-top: 1px solid var(--border); }
     .legend span { display: flex; align-items: center; gap: 4px; }
+
+    /* CURVE SECTION */
+    .curve-section { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .curve-head { padding: 13px 16px; border-bottom: 1px solid var(--border); background: #f8fafc; }
+    .curve-head h2 { font-size: 14px; font-weight: 600; }
+    .curve-head p { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .curve-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+    .curve-chart { padding: 16px; }
+    .curve-chart + .curve-chart { border-left: 1px solid var(--border); }
+    .curve-chart-title { font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+    .curve-legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); padding: 8px 16px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+    .curve-legend span { display: flex; align-items: center; gap: 5px; }
+    .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
   </style>
 </head>
 <body>
@@ -98,6 +112,7 @@
 
 <div class="page">
   <div class="summary-bar" id="summary-bar"></div>
+  <div id="curve-section"></div>
   <div id="products"></div>
 </div>
 
@@ -220,6 +235,80 @@ function hcCell(needed, current) {
   if (needed <= current)      return `<span class="hc-ok">${needed}</span>`;
   if (needed === current + 1) return `<span class="hc-warn">${needed}</span>`;
   return `<span class="hc-crit">${needed}</span>`;
+}
+
+/* ─── RENDER CURVE ──────────────────────────────────────────── */
+const _charts = {};
+function renderCurve() {
+  const names = Object.keys(S.products);
+  const section = document.getElementById('curve-section');
+  section.innerHTML = `
+    <div class="curve-section">
+      <div class="curve-head">
+        <h2>Curva de HC necessário — mês a mês</h2>
+        <p>Quantas pessoas são necessárias em cada mês para manter a fila sob controle. A linha tracejada é o headcount atual.</p>
+      </div>
+      <div class="curve-grid">
+        ${names.map(n => `<div class="curve-chart"><div class="curve-chart-title" style="color:${S.products[n].color}">${n}</div><canvas id="cv-${n.replace(/\W/g,'_')}"></canvas></div>`).join('')}
+      </div>
+      <div class="curve-legend">
+        <span><span class="swatch" style="background:#16a34a"></span>Dentro do headcount atual</span>
+        <span><span class="swatch" style="background:#d97706"></span>+1 pessoa</span>
+        <span><span class="swatch" style="background:#dc2626"></span>+2 ou mais</span>
+        <span style="margin-left:4px">— — headcount atual</span>
+      </div>
+    </div>`;
+
+  names.forEach(name => {
+    const p = S.products[name];
+    const rows = simulate(name);
+    const labels = rows.map(r => r.m.label);
+    const hcData = rows.map(r => typeof r.hcMin === 'number' ? r.hcMin : 0);
+    const colors = hcData.map(v =>
+      v <= p.headcount ? '#16a34a' : v === p.headcount + 1 ? '#d97706' : '#dc2626'
+    );
+    const id = 'cv-' + name.replace(/\W/g,'_');
+    if (_charts[id]) { _charts[id].destroy(); }
+    const ctx = document.getElementById(id).getContext('2d');
+    _charts[id] = new Chart(ctx, {
+      data: {
+        labels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'HC necessário',
+            data: hcData,
+            backgroundColor: colors,
+            borderRadius: 3,
+            order: 2,
+          },
+          {
+            type: 'line',
+            label: 'HC atual',
+            data: Array(rows.length).fill(p.headcount),
+            borderColor: '#0f172a',
+            borderWidth: 2,
+            borderDash: [6, 3],
+            pointRadius: 0,
+            fill: false,
+            order: 1,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1, precision: 0 },
+            title: { display: true, text: 'pessoas', font: { size: 11 } }
+          },
+          x: { ticks: { font: { size: 10 } } }
+        }
+      }
+    });
+  });
 }
 
 /* ─── RENDER SUMMARY ────────────────────────────────────────── */
@@ -371,6 +460,7 @@ function setConf(name, field, val) {
 }
 function rerender() {
   renderSummary();
+  renderCurve();
   document.getElementById('products').innerHTML =
     Object.keys(S.products).map(renderProduct).join('');
 }
