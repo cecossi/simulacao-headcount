@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Simulador de Headcount — Preâmbulo Tech</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <style>
     :root {
       --bg: #f1f5f9;
@@ -120,6 +121,8 @@
 </div>
 
 <script>
+Chart.register(ChartDataLabels);
+
 const MONTHS = [
   { key:'2026-10', label:'Out/26', year:'2026', partial:true },
   { key:'2026-11', label:'Nov/26', year:'2026' },
@@ -240,6 +243,35 @@ function hcCell(needed, current) {
   return `<span class="hc-crit">${needed}</span>`;
 }
 
+/* ─── CONFIG CHART ──────────────────────────────────────────── */
+const DATALABELS_BAR = {
+  display: ctx => ctx.datasetIndex === 0 && ctx.dataset.data[ctx.dataIndex] > 0,
+  anchor: 'end',
+  align: 'end',
+  offset: 2,
+  font: { size: 10, weight: '700' },
+  color: '#0f172a',
+  formatter: v => v,
+};
+
+const CHART_OPTIONS = (yMax) => ({
+  responsive: true,
+  plugins: {
+    legend: { display: false },
+    datalabels: DATALABELS_BAR,
+  },
+  layout: { padding: { top: 18 } },
+  scales: {
+    y: {
+      beginAtZero: true,
+      ...(yMax ? { max: yMax + 2 } : {}),
+      ticks: { stepSize: 1, precision: 0 },
+      title: { display: true, text: 'pessoas', font: { size: 11 } },
+    },
+    x: { ticks: { font: { size: 10 } } },
+  },
+});
+
 /* ─── RENDER CURVE ──────────────────────────────────────────── */
 const _charts = {};
 function renderCurve() {
@@ -307,18 +339,7 @@ function renderCurve() {
         }
       ]
     },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: { stepSize: 1, precision: 0 },
-          title: { display: true, text: 'pessoas', font: { size: 11 } }
-        },
-        x: { ticks: { font: { size: 11 } } }
-      }
-    }
+    options: CHART_OPTIONS(Math.max(...totalData)),
   });
 
   names.forEach(name => {
@@ -357,18 +378,7 @@ function renderCurve() {
           }
         ]
       },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: { stepSize: 1, precision: 0 },
-            title: { display: true, text: 'pessoas', font: { size: 11 } }
-          },
-          x: { ticks: { font: { size: 10 } } }
-        }
-      }
+      options: CHART_OPTIONS(Math.max(...hcData)),
     });
   });
 }
